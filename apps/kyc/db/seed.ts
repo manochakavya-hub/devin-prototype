@@ -68,6 +68,9 @@ function main() {
   const now = Date.now();
   const iso = (ms: number) => new Date(ms).toISOString();
 
+  // Collected and inserted in timestamp order so audit ids increase with time, like a real log.
+  const auditRows: (typeof auditLog.$inferInsert)[] = [];
+
   db.transaction((tx) => {
     tx.insert(users).values(SEED_USERS).run();
 
@@ -101,15 +104,18 @@ function main() {
         nameOnForm: applicant, nameOnId: nameOnId ?? applicant,
         idDocumentStatus: idDoc, selfieMatchPct: selfie, sanctionsCheckResult: sanctions,
       }).run();
-      if (events.length) tx.insert(auditLog).values(events).run();
+      auditRows.push(...events);
     });
 
     // One historic denied attempt so the audit viewer shows what a denial looks like.
-    tx.insert(auditLog).values({
+    auditRows.push({
       timestamp: iso(now - 50 * HOUR), actorUserId: "u_alice", action: "denied", caseId: "KYC-1013",
       fromStatus: "in_review", toStatus: null, reason: "High-risk cases can only be decided by a senior reviewer",
       metadata: { attempted_action: "approve", risk_level: "high", seeded: true },
-    }).run();
+    });
+
+    auditRows.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    tx.insert(auditLog).values(auditRows).run();
   });
 
   console.log(`Seeded ${SEED_USERS.length} users and ${SEED_CASES.length} cases into ${file}`);

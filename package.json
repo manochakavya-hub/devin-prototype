@@ -13,7 +13,7 @@
     "seed": "tsx apps/kyc/db/seed.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.4",
     "next": "15.5.28",
     "react": "19.1.0",

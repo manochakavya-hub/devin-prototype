@@ -18,6 +18,8 @@ type Props<T> = {
   filters?: DataTableFilter<T>[];
   search?: { placeholder: string; text: (row: T) => string };
   defaultSort?: SortState;
+  /** Initial filter selections, keyed by filter key. */
+  defaultFilters?: Record<string, string>;
   pageSize?: number;
   rowHref?: (row: T) => string;
   emptyMessage?: string;
@@ -28,11 +30,11 @@ type Props<T> = {
  * sets the same props could be driven by server-side queries.
  */
 export function DataTable<T>({
-  rows, columns, rowKey, filters = [], search, defaultSort, pageSize = 10, rowHref, emptyMessage = "No rows",
+  rows, columns, rowKey, filters = [], search, defaultSort, defaultFilters, pageSize = 10, rowHref, emptyMessage = "No rows",
 }: Props<T>) {
   const router = useRouter();
   const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(defaultFilters ?? {});
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
 
