@@ -6,7 +6,16 @@ import { listAuditActions, queryAudit } from "@/platform/audit/log";
 type Search = { actor?: string; case?: string; action?: string };
 
 /** Server component: filters are plain GET params, so filtered views are linkable and the query runs in SQL. */
-export function AuditLogViewer({ db, searchParams, caseHrefPrefix }: { db: Db; searchParams: Search; caseHrefPrefix?: string }) {
+type Props = {
+  db: Db;
+  searchParams: Search;
+  caseHrefPrefix?: string;
+  /** Label/placeholder for the subject filter, e.g. "Case ID" / "e.g. KYC-1013". */
+  subjectLabel?: string;
+  subjectPlaceholder?: string;
+};
+
+export function AuditLogViewer({ db, searchParams, caseHrefPrefix, subjectLabel = "Subject ID", subjectPlaceholder }: Props) {
   const filters = {
     actorUserId: searchParams.actor || undefined,
     caseId: searchParams.case?.trim() || undefined,
@@ -35,8 +44,8 @@ export function AuditLogViewer({ db, searchParams, caseHrefPrefix }: { db: Db; s
           </select>
         </label>
         <label className="text-xs font-medium text-slate-600">
-          Case ID
-          <input name="case" defaultValue={filters.caseId ?? ""} placeholder="e.g. KYC-1013" className={`${field} w-40`} />
+          {subjectLabel}
+          <input name="case" defaultValue={filters.caseId ?? ""} placeholder={subjectPlaceholder} className={`${field} w-40`} />
         </label>
         <button type="submit" className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Apply</button>
         <a href="?" className="px-2 py-1.5 text-sm text-slate-600 hover:underline">Clear</a>
