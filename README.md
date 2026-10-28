@@ -10,15 +10,6 @@ apps built on one shared `/platform`:
 - **Feature flags** (`/flags`): engineers create flags and switch them on/off in staging; release managers
   also control production (with a required reason) and archive flags.
 
-Every state change and every denied attempt goes into one append-only audit log.
-
-The point is to show two things:
-
-1. A small team can build a production-*shaped* internal tool quickly: real server-side permissions,
-   a real state machine, transactional audit, tests.
-2. The shared pieces (auth/roles, audit log, data table, app shell) live in `/platform` and are reused by
-   the other two apps. This is **not** a low-code platform: just a few plain libraries.
-
 ## Running it
 
 Requires Node 20.19+ (tested on 22 and 24).
