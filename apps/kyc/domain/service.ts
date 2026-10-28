@@ -3,7 +3,7 @@ import type { Db } from "@/platform/db/client";
 import { appendAudit, recordDenied } from "@/platform/audit/log";
 import { kycCases, type KycCase } from "@/apps/kyc/db/schema";
 import {
-  CASE_STATUSES, REJECTION_REASONS, RISK_LEVELS,
+  CASE_STATUSES, KYC_APP, REJECTION_REASONS, RISK_LEVELS,
   type CaseAction, type CaseStatus, type RejectionReason, type RiskLevel,
 } from "@/apps/kyc/domain/constants";
 import { checkOwnership, checkRolePermission, isDecision } from "@/apps/kyc/domain/permissions";
@@ -93,6 +93,7 @@ export function performCaseAction(db: Db, user: Actor, caseId: string, input: Ac
 
 function denied(db: Db, user: Actor, kase: KycCase, action: CaseAction, reason: string): ActionResult {
   recordDenied(db, {
+    app: KYC_APP,
     actorUserId: user.id,
     attemptedAction: action,
     reason,
@@ -134,6 +135,7 @@ export function applyTransition(db: Db, user: Actor, snapshot: KycCase, action: 
         if (!updated) throw new StaleCaseError();
 
         const audit = appendAudit(tx, {
+          app: KYC_APP,
           timestamp: now,
           actorUserId: user.id,
           action,

@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import HomePage from "@/apps/home/HomePage";
 
-export default function Home() {
-  redirect("/kyc");
+export default async function Page({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
+  return <HomePage denied={(await searchParams).denied} />;
 }

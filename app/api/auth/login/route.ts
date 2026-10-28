@@ -1,4 +1,4 @@
 import { createLoginHandler } from "@/platform/auth/server";
-import { getDb } from "@/apps/kyc/db";
+import { getHomeDb } from "@/apps/home/db";
 
-export const POST = createLoginHandler(getDb);
+export const POST = createLoginHandler(getHomeDb);

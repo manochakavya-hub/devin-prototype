@@ -3,6 +3,8 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 export const auditLog = sqliteTable("audit_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   timestamp: text("timestamp").notNull(),
+  // Which app wrote the row (null for platform-level events such as login).
+  app: text("app"),
   actorUserId: text("actor_user_id").notNull(),
   action: text("action").notNull(),
   // Generic subject id. Named case_id per the KYC spec; other apps store their own entity id here.
@@ -19,6 +21,7 @@ export const AUDIT_DDL = `
 CREATE TABLE IF NOT EXISTS audit_log (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   timestamp     TEXT NOT NULL,
+  app           TEXT,
   actor_user_id TEXT NOT NULL REFERENCES users(id),
   action        TEXT NOT NULL,
   case_id       TEXT,
@@ -27,6 +30,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   reason        TEXT,
   metadata      TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
 );
+CREATE INDEX IF NOT EXISTS audit_log_app_idx ON audit_log(app, id);
 CREATE INDEX IF NOT EXISTS audit_log_case_idx ON audit_log(case_id, id);
 CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log(actor_user_id, id);
 CREATE INDEX IF NOT EXISTS audit_log_action_idx ON audit_log(action, id);

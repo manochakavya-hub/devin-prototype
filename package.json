@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "tsx apps/kyc/db/seed.ts"
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

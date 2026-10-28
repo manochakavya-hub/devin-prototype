@@ -1,19 +1,8 @@
-/* Resets the local database and fills it with fictional data. Run with `npm run seed`. */
-import fs from "node:fs";
-import { users } from "@/platform/auth/schema";
+/* Fictional KYC cases. Called from scripts/seed.ts (`npm run seed`). */
 import { auditLog } from "@/platform/audit/schema";
-import { openDb } from "@/platform/db/client";
-import { ALL_DDL, dbPath } from "@/apps/kyc/db";
+import type { DbExecutor } from "@/platform/db/client";
 import { kycCases, type KycCase } from "@/apps/kyc/db/schema";
-import type { RejectionReason } from "@/apps/kyc/domain/constants";
-
-const SEED_USERS = [
-  { id: "u_alice", email: "alice.moreno@example.com", name: "Alice Moreno", role: "reviewer" },
-  { id: "u_ben", email: "ben.okafor@example.com", name: "Ben Okafor", role: "reviewer" },
-  { id: "u_sara", email: "sara.lindqvist@example.com", name: "Sara Lindqvist", role: "senior_reviewer" },
-  { id: "u_dev", email: "dev.patel@example.com", name: "Dev Patel", role: "senior_reviewer" },
-  { id: "u_grace", email: "grace.kim@example.com", name: "Grace Kim", role: "auditor" },
-];
+import { KYC_APP, type RejectionReason } from "@/apps/kyc/domain/constants";
 
 type SeedCase = [
   applicant: string,
@@ -60,65 +49,55 @@ const SEED_CASES: SeedCase[] = [
 ];
 
 const HOUR = 3_600_000;
+type AuditInsert = typeof auditLog.$inferInsert;
 
-function main() {
-  const file = dbPath();
-  for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(file + suffix, { force: true });
-  const db = openDb(file, ALL_DDL);
-  const now = Date.now();
+/** Inserts the KYC cases and returns their synthetic audit history (the caller inserts it in time order). */
+export function seedKyc(tx: DbExecutor, now: number): AuditInsert[] {
   const iso = (ms: number) => new Date(ms).toISOString();
+  const auditRows: AuditInsert[] = [];
 
-  // Collected and inserted in timestamp order so audit ids increase with time, like a real log.
-  const auditRows: (typeof auditLog.$inferInsert)[] = [];
+  SEED_CASES.forEach((c, i) => {
+    const [applicant, country, risk, flagReason, status, hoursAgo, nameOnId, idDoc, selfie, sanctions, assignee, rejection] = c;
+    const id = `KYC-${1001 + i}`;
+    const created = now - hoursAgo * HOUR;
+    const claimedAt = created + 1 * HOUR;
+    const decidedAt = created + 3 * HOUR;
+    const events: (typeof auditLog.$inferInsert)[] = [];
+    const meta = { risk_level: risk, seeded: true };
 
-  db.transaction((tx) => {
-    tx.insert(users).values(SEED_USERS).run();
+    if (status !== "pending" && assignee) {
+      events.push({ timestamp: iso(claimedAt), actorUserId: assignee, action: "claim", caseId: id, fromStatus: "pending", toStatus: "in_review", reason: null, metadata: meta });
+    }
+    if (status === "approved") {
+      events.push({ timestamp: iso(decidedAt), actorUserId: assignee!, action: "approve", caseId: id, fromStatus: "in_review", toStatus: "approved", reason: "Checks reviewed, no concerns", metadata: { ...meta, note: "Checks reviewed, no concerns" } });
+    }
+    if (status === "rejected") {
+      events.push({ timestamp: iso(decidedAt), actorUserId: assignee!, action: "reject", caseId: id, fromStatus: "in_review", toStatus: "rejected", reason: rejection!, metadata: { ...meta, reason_code: rejection, note: "See check results" } });
+    }
+    if (status === "info_requested") {
+      events.push({ timestamp: iso(decidedAt), actorUserId: assignee!, action: "request_info", caseId: id, fromStatus: "in_review", toStatus: "info_requested", reason: "Please provide a clearer photo of your ID", metadata: { ...meta, note: "Please provide a clearer photo of your ID" } });
+    }
 
-    SEED_CASES.forEach((c, i) => {
-      const [applicant, country, risk, flagReason, status, hoursAgo, nameOnId, idDoc, selfie, sanctions, assignee, rejection] = c;
-      const id = `KYC-${1001 + i}`;
-      const created = now - hoursAgo * HOUR;
-      const claimedAt = created + 1 * HOUR;
-      const decidedAt = created + 3 * HOUR;
-      const events: (typeof auditLog.$inferInsert)[] = [];
-      const meta = { risk_level: risk, seeded: true };
-
-      if (status !== "pending" && assignee) {
-        events.push({ timestamp: iso(claimedAt), actorUserId: assignee, action: "claim", caseId: id, fromStatus: "pending", toStatus: "in_review", reason: null, metadata: meta });
-      }
-      if (status === "approved") {
-        events.push({ timestamp: iso(decidedAt), actorUserId: assignee!, action: "approve", caseId: id, fromStatus: "in_review", toStatus: "approved", reason: "Checks reviewed, no concerns", metadata: { ...meta, note: "Checks reviewed, no concerns" } });
-      }
-      if (status === "rejected") {
-        events.push({ timestamp: iso(decidedAt), actorUserId: assignee!, action: "reject", caseId: id, fromStatus: "in_review", toStatus: "rejected", reason: rejection!, metadata: { ...meta, reason_code: rejection, note: "See check results" } });
-      }
-      if (status === "info_requested") {
-        events.push({ timestamp: iso(decidedAt), actorUserId: assignee!, action: "request_info", caseId: id, fromStatus: "in_review", toStatus: "info_requested", reason: "Please provide a clearer photo of your ID", metadata: { ...meta, note: "Please provide a clearer photo of your ID" } });
-      }
-
-      tx.insert(kycCases).values({
-        id, applicantName: applicant, country, riskLevel: risk, flagReason, status,
-        assignedTo: status === "pending" ? null : (assignee ?? null),
-        createdAt: iso(created),
-        updatedAt: events.length ? events[events.length - 1].timestamp : iso(created),
-        nameOnForm: applicant, nameOnId: nameOnId ?? applicant,
-        idDocumentStatus: idDoc, selfieMatchPct: selfie, sanctionsCheckResult: sanctions,
-      }).run();
-      auditRows.push(...events);
-    });
-
-    // One historic denied attempt so the audit viewer shows what a denial looks like.
-    auditRows.push({
-      timestamp: iso(now - 50 * HOUR), actorUserId: "u_alice", action: "denied", caseId: "KYC-1013",
-      fromStatus: "in_review", toStatus: null, reason: "High-risk cases can only be decided by a senior reviewer",
-      metadata: { attempted_action: "approve", risk_level: "high", seeded: true },
-    });
-
-    auditRows.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    tx.insert(auditLog).values(auditRows).run();
+    tx.insert(kycCases).values({
+      id, applicantName: applicant, country, riskLevel: risk, flagReason, status,
+      assignedTo: status === "pending" ? null : (assignee ?? null),
+      createdAt: iso(created),
+      updatedAt: events.length ? events[events.length - 1].timestamp : iso(created),
+      nameOnForm: applicant, nameOnId: nameOnId ?? applicant,
+      idDocumentStatus: idDoc, selfieMatchPct: selfie, sanctionsCheckResult: sanctions,
+    }).run();
+    auditRows.push(...events);
   });
 
-  console.log(`Seeded ${SEED_USERS.length} users and ${SEED_CASES.length} cases into ${file}`);
+
+  // One historic denied attempt so the audit viewer shows what a denial looks like.
+  auditRows.push({
+    timestamp: iso(now - 50 * HOUR), actorUserId: "u_alice", action: "denied", caseId: "KYC-1013",
+    fromStatus: "in_review", toStatus: null, reason: "High-risk cases can only be decided by a senior reviewer",
+    metadata: { attempted_action: "approve", risk_level: "high", seeded: true },
+  });
+
+  return auditRows.map((r) => ({ ...r, app: KYC_APP }));
 }
 
-main();
+export const KYC_CASE_COUNT = SEED_CASES.length;

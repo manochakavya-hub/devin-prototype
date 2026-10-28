@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type LoginUser = { id: string; name: string; email: string; role: string };
+type LoginUser = { id: string; name: string; email: string; roles: { app: string; role: string }[] };
 
 export function LoginScreen({ users, appName, redirectTo }: { users: LoginUser[]; appName: string; redirectTo: string }) {
   const router = useRouter();
@@ -47,8 +47,16 @@ export function LoginScreen({ users, appName, redirectTo }: { users: LoginUser[]
                 <span className="block font-medium">{u.name}</span>
                 <span className="block text-xs text-slate-500">{u.email}</span>
               </span>
-              <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-700">
-                {busy === u.id ? "signing in…" : u.role}
+              <span className="flex flex-col items-end gap-1">
+                {busy === u.id ? (
+                  <span className="font-mono text-xs text-slate-500">signing in…</span>
+                ) : u.roles.length ? (
+                  u.roles.map((r) => (
+                    <span key={r.app} className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-700">{r.app}: {r.role}</span>
+                  ))
+                ) : (
+                  <span className="font-mono text-xs text-slate-400">no app roles</span>
+                )}
               </span>
             </button>
           </li>

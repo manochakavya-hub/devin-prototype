@@ -3,14 +3,14 @@ import { notFound } from "next/navigation";
 import { AuditTimeline } from "@/platform/audit/AuditTimeline";
 import { queryAudit } from "@/platform/audit/log";
 import { getUserById } from "@/platform/auth/server";
-import type { User } from "@/platform/auth/schema";
+import type { AppUser } from "@/platform/auth/schema";
 import { formatDateTime } from "@/platform/ui/format";
 import { StatusBadge, type BadgeTone } from "@/platform/ui/StatusBadge";
 import { getDb } from "@/apps/kyc/db";
 import type { KycCase } from "@/apps/kyc/db/schema";
 import { CaseActions } from "@/apps/kyc/components/CaseActions";
 import { CaseStatusBadge, RiskBadge } from "@/apps/kyc/components/badges";
-import type { CaseAction } from "@/apps/kyc/domain/constants";
+import { KYC_APP, type CaseAction } from "@/apps/kyc/domain/constants";
 import { allowedActions, checkOwnership, checkRolePermission } from "@/apps/kyc/domain/permissions";
 import { getCase } from "@/apps/kyc/domain/service";
 import { requirePageUser } from "@/apps/kyc/session";
@@ -20,7 +20,7 @@ const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, 
 const PRIMARY_ACTION: Partial<Record<KycCase["status"], CaseAction>> = { pending: "claim", in_review: "approve", info_requested: "customer_replied" };
 
 /** Human explanation for why no actions are offered, using the same policy the API enforces. */
-function noActionReason(user: User, kase: KycCase): string {
+function noActionReason(user: AppUser, kase: KycCase): string {
   const action = PRIMARY_ACTION[kase.status];
   if (!action) return `This case is ${kase.status} (final).`;
   const role = checkRolePermission(user, action, kase);
@@ -44,7 +44,7 @@ export default async function CaseDetailPage({ id }: { id: string }) {
   const kase = getCase(db, id);
   if (!kase) notFound();
 
-  const history = queryAudit(db, { caseId: kase.id });
+  const history = queryAudit(db, { app: KYC_APP, caseId: kase.id });
   const actions = allowedActions(user, kase);
   const assignee = kase.assignedTo ? getUserById(db, kase.assignedTo) : undefined;
   const exact = kase.nameOnForm === kase.nameOnId;

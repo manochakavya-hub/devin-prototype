@@ -21,6 +21,11 @@ export function openDb(file: string, ddl: string[]): Db {
   return drizzle(sqlite);
 }
 
+/** One SQLite file shared by every internal app (so audit writes can share a transaction with app data). */
+export function defaultDbPath(): string {
+  return process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "app.db");
+}
+
 export function nowIso(): string {
   return new Date().toISOString();
 }

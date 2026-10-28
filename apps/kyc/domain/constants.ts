@@ -1,3 +1,5 @@
+export const KYC_APP = "kyc";
+
 export const KYC_ROLES = ["reviewer", "senior_reviewer", "auditor"] as const;
 export type KycRole = (typeof KYC_ROLES)[number];
 

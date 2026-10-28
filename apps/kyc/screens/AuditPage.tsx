@@ -7,7 +7,7 @@ export default async function AuditPage({ searchParams }: { searchParams: { acto
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Audit log</h1>
-      <AuditLogViewer db={getDb()} searchParams={searchParams} caseHrefPrefix="/kyc/cases/" subjectLabel="Case ID" subjectPlaceholder="e.g. KYC-1013" />
+      <AuditLogViewer db={getDb()} app="kyc" searchParams={searchParams} caseHrefPrefix="/kyc/cases/" subjectLabel="Case ID" subjectPlaceholder="e.g. KYC-1013" />
     </div>
   );
 }

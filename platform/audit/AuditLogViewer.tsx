@@ -1,5 +1,5 @@
 import type { Db } from "@/platform/db/client";
-import { listUsers } from "@/platform/auth/server";
+import { listAppUsers, listUsersWithRoles } from "@/platform/auth/server";
 import { AuditLogTable } from "@/platform/audit/AuditLogTable";
 import { listAuditActions, queryAudit } from "@/platform/audit/log";
 
@@ -8,6 +8,8 @@ type Search = { actor?: string; case?: string; action?: string };
 /** Server component: filters are plain GET params, so filtered views are linkable and the query runs in SQL. */
 type Props = {
   db: Db;
+  /** Show only this app's rows (plus platform-level rows like logins). Omit for every app. */
+  app?: string;
   searchParams: Search;
   caseHrefPrefix?: string;
   /** Label/placeholder for the subject filter, e.g. "Case ID" / "e.g. KYC-1013". */
@@ -15,15 +17,18 @@ type Props = {
   subjectPlaceholder?: string;
 };
 
-export function AuditLogViewer({ db, searchParams, caseHrefPrefix, subjectLabel = "Subject ID", subjectPlaceholder }: Props) {
+export function AuditLogViewer({ db, app, searchParams, caseHrefPrefix, subjectLabel = "Subject ID", subjectPlaceholder }: Props) {
   const filters = {
+    app,
     actorUserId: searchParams.actor || undefined,
     caseId: searchParams.case?.trim() || undefined,
     action: searchParams.action || undefined,
   };
   const entries = queryAudit(db, filters);
-  const actors = listUsers(db);
-  const actions = listAuditActions(db);
+  const actors = app
+    ? listAppUsers(db, app).map((u) => ({ id: u.id, label: `${u.name} (${u.role})` }))
+    : listUsersWithRoles(db).map((u) => ({ id: u.id, label: u.name }));
+  const actions = listAuditActions(db, app);
   const field = "mt-1 block rounded-md border border-slate-300 bg-white px-2 py-1 text-sm";
 
   return (
@@ -33,7 +38,7 @@ export function AuditLogViewer({ db, searchParams, caseHrefPrefix, subjectLabel 
           Actor
           <select name="actor" defaultValue={filters.actorUserId ?? ""} className={field}>
             <option value="">All</option>
-            {actors.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+            {actors.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
           </select>
         </label>
         <label className="text-xs font-medium text-slate-600">

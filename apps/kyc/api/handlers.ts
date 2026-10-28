@@ -1,23 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { queryAudit, recordDenied } from "@/platform/audit/log";
-import { requireUser } from "@/platform/auth/server";
-import type { User } from "@/platform/auth/schema";
+import { queryAudit } from "@/platform/audit/log";
+import { requireAppUser } from "@/platform/auth/server";
+import type { AppUser } from "@/platform/auth/schema";
 import { HttpError, readJson, withErrors } from "@/platform/http/errors";
 import { getDb } from "@/apps/kyc/db";
-import { allowedActions, canViewCases } from "@/apps/kyc/domain/permissions";
+import { KYC_APP } from "@/apps/kyc/domain/constants";
+import { allowedActions } from "@/apps/kyc/domain/permissions";
 import { getCase, isCaseStatus, isRiskLevel, listCases, performCaseAction } from "@/apps/kyc/domain/service";
 
 type IdParams = { params: Promise<{ id: string }> };
 
-function requireViewer(req: NextRequest): { db: ReturnType<typeof getDb>; user: User } {
+/** Every KYC role can read; users without a KYC role get 403 (logged as "denied" by requireAppUser). */
+function requireViewer(req: NextRequest): { db: ReturnType<typeof getDb>; user: AppUser } {
   const db = getDb();
-  const user = requireUser(db, req);
-  const view = canViewCases(user);
-  if (!view.allowed) {
-    recordDenied(db, { actorUserId: user.id, attemptedAction: "view", reason: view.reason, metadata: { path: req.nextUrl.pathname } });
-    throw new HttpError(403, "forbidden", view.reason);
-  }
-  return { db, user };
+  return { db, user: requireAppUser(db, req, KYC_APP) };
 }
 
 /** GET /api/kyc/cases?status=&risk= */
@@ -36,13 +32,13 @@ export const getCaseHandler = withErrors(async (req: NextRequest, { params }: Id
   const { id } = await params;
   const kase = getCase(db, id);
   if (!kase) throw new HttpError(404, "not_found", `Case ${id} not found`);
-  return NextResponse.json({ case: kase, allowedActions: allowedActions(user, kase), history: queryAudit(db, { caseId: id }) });
+  return NextResponse.json({ case: kase, allowedActions: allowedActions(user, kase), history: queryAudit(db, { app: KYC_APP, caseId: id }) });
 });
 
 /** POST /api/kyc/cases/:id/actions  body: { action, reasonCode?, note? } */
 export const caseActionHandler = withErrors(async (req: NextRequest, { params }: IdParams) => {
   const db = getDb();
-  const user = requireUser(db, req);
+  const user = requireAppUser(db, req, KYC_APP);
   const { id } = await params;
   const body = await readJson(req);
   const result = performCaseAction(db, user, id, body);
@@ -56,6 +52,7 @@ export const auditHandler = withErrors(async (req: NextRequest) => {
   const q = req.nextUrl.searchParams;
   return NextResponse.json({
     entries: queryAudit(db, {
+      app: KYC_APP,
       actorUserId: q.get("actor") || undefined,
       caseId: q.get("case") || undefined,
       action: q.get("action") || undefined,

@@ -20,7 +20,7 @@ function sqliteError(fn: () => unknown): string {
 
 beforeEach(() => {
   db = openDb(":memory:", [USERS_DDL, AUDIT_DDL]);
-  db.insert(users).values({ id: "u1", email: "u1@example.com", name: "User One", role: "reviewer" }).run();
+  db.insert(users).values({ id: "u1", email: "u1@example.com", name: "User One" }).run();
   appendAudit(db, { actorUserId: "u1", action: "claim", caseId: "C-1", fromStatus: "pending", toStatus: "in_review", metadata: { a: 1 } });
 });
 

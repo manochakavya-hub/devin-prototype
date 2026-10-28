@@ -1,1 +1,1 @@
-export { default } from "@/apps/kyc/screens/LoginPage";
+export { default } from "@/apps/home/LoginPage";
