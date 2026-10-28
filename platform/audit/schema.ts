@@ -37,6 +37,14 @@ BEGIN
   SELECT RAISE(ABORT, 'audit_log is append-only: UPDATE is not allowed');
 END;
 
+-- INSERT OR REPLACE on an existing id would otherwise silently delete + reinsert the row.
+CREATE TRIGGER IF NOT EXISTS audit_log_no_overwrite
+BEFORE INSERT ON audit_log
+WHEN NEW.id IS NOT NULL AND EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id)
+BEGIN
+  SELECT RAISE(ABORT, 'audit_log is append-only: overwriting an existing row is not allowed');
+END;
+
 CREATE TRIGGER IF NOT EXISTS audit_log_no_delete
 BEFORE DELETE ON audit_log
 BEGIN

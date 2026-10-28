@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import type { RunResult } from "better-sqlite3";
 
 export type Db = BetterSQLite3Database;
 
@@ -22,3 +24,6 @@ export function openDb(file: string, ddl: string[]): Db {
 export function nowIso(): string {
   return new Date().toISOString();
 }
+
+/** Anything that can run queries: the root db or a transaction handle. */
+export type DbExecutor = BaseSQLiteDatabase<"sync", RunResult>;
