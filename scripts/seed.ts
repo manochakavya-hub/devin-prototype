@@ -7,6 +7,8 @@ import { ALL_DDL as KYC_DDL } from "@/apps/kyc/db";
 import { KYC_CASE_COUNT, seedKyc } from "@/apps/kyc/db/seed";
 import { ALL_DDL as REFUNDS_DDL } from "@/apps/refunds/db";
 import { REFUND_COUNT, seedRefunds } from "@/apps/refunds/db/seed";
+import { ALL_DDL as FLAGS_DDL } from "@/apps/flags/db";
+import { FLAG_COUNT, seedFlags } from "@/apps/flags/db/seed";
 
 const SEED_USERS = [
   { id: "u_alice", email: "alice.moreno@example.com", name: "Alice Moreno" },
@@ -29,24 +31,28 @@ const SEED_ROLES: [userId: string, app: string, role: string][] = [
   ["u_grace", "kyc", "auditor"],
   ["u_grace", "refunds", "auditor"],
   ["u_omar", "refunds", "finance_approver"],
+  ["u_alice", "flags", "engineer"],
+  ["u_sara", "flags", "engineer"],
+  ["u_dev", "flags", "release_manager"],
+  ["u_grace", "flags", "auditor"],
 ];
 
 function main() {
   const file = defaultDbPath();
   for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(file + suffix, { force: true });
-  const db = openDb(file, [...new Set([...KYC_DDL, ...REFUNDS_DDL])]);
+  const db = openDb(file, [...new Set([...KYC_DDL, ...REFUNDS_DDL, ...FLAGS_DDL])]);
   const now = Date.now();
 
   db.transaction((tx) => {
     tx.insert(users).values(SEED_USERS).run();
     tx.insert(userRoles).values(SEED_ROLES.map(([userId, app, role]) => ({ userId, app, role }))).run();
-    const auditRows = [...seedKyc(tx, now), ...seedRefunds(tx, now)];
+    const auditRows = [...seedKyc(tx, now), ...seedRefunds(tx, now), ...seedFlags(tx, now)];
     // Inserted in timestamp order so audit ids increase with time, like a real log.
     auditRows.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     tx.insert(auditLog).values(auditRows).run();
   });
 
-  console.log(`Seeded ${SEED_USERS.length} users, ${KYC_CASE_COUNT} KYC cases, ${REFUND_COUNT} refund requests into ${file}`);
+  console.log(`Seeded ${SEED_USERS.length} users, ${KYC_CASE_COUNT} KYC cases, ${REFUND_COUNT} refund requests, ${FLAG_COUNT} feature flags into ${file}`);
 }
 
 main();
