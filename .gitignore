@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local sqlite database
 /data
+
+# local-only notes, not for GitHub
+DEVIN_NOTES.md
