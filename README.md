@@ -1,16 +1,21 @@
-# KYC Review Queue (prototype)
+# Internal tools prototype: KYC Review Queue + Refunds
 
-A time-boxed proof of concept for replacing a Power Apps tool with a custom internal app. Operations staff
-work a queue of flagged KYC (know-your-customer) cases: claim a case, compare the applicant's form against
-their ID and check results, then approve, reject or request more information. Every state change and every
-denied attempt goes into an append-only audit log.
+A time-boxed proof of concept for replacing Power Apps with custom internal tools. It contains two small
+apps built on one shared `/platform`:
+
+- **KYC Review Queue** (`/kyc`): operations staff claim flagged KYC (know-your-customer) cases, compare
+  the applicant's form with their ID and check results, then approve, reject or request more information.
+- **Refunds** (`/refunds`): agents and finance approve or reject customer refund requests, with an approval
+  limit and a two-person rule; finance marks approved refunds as paid.
+
+Every state change and every denied attempt goes into one append-only audit log.
 
 The point is to show two things:
 
 1. A small team can build a production-*shaped* internal tool quickly: real server-side permissions,
    a real state machine, transactional audit, tests.
-2. The shared pieces (auth/roles, audit log, data table) live in `/platform` and can be reused by the next
-   internal app without edits. This is **not** a low-code platform: just a few plain libraries.
+2. The shared pieces (auth/roles, audit log, data table, app shell) live in `/platform` and are reused by
+   the second app. This is **not** a low-code platform: just a few plain libraries.
 
 ## Running it
 
@@ -20,45 +25,81 @@ Requires Node 20.19+ (tested on 22 and 24).
 npm install && npm run seed && npm run dev
 ```
 
-Open http://localhost:3000 and pick a user on the dev login screen.
+Open http://localhost:3000, pick a user on the dev login screen, then pick an app on the launcher.
 
-| User | Role | Can |
+| User | KYC role | Refunds role |
 | --- | --- | --- |
-| Alice Moreno, Ben Okafor | `reviewer` | view; claim and decide low/medium risk cases |
-| Sara Lindqvist, Dev Patel | `senior_reviewer` | everything a reviewer can, plus high-risk cases |
-| Grace Kim | `auditor` | read-only access to cases and the audit log |
+| Alice Moreno | `reviewer` | `agent` |
+| Ben Okafor | `reviewer` | `finance_approver` |
+| Sara Lindqvist | `senior_reviewer` | none |
+| Dev Patel | `senior_reviewer` | `agent` |
+| Grace Kim | `auditor` | `auditor` |
+| Omar Haddad | none | `finance_approver` |
 
 Other scripts: `npm test` (Vitest), `npm run lint`, `npm run typecheck`, `npm run build`.
 
-`npm run seed` deletes and recreates `data/kyc.db` (path overridable with `DATABASE_PATH`). **Stop the dev
+`npm run seed` deletes and recreates `data/app.db` (path overridable with `DATABASE_PATH`). **Stop the dev
 server before re-seeding**: a running server keeps the old, deleted file open. If you switch Node versions,
 re-run `npm install` (or `npm rebuild better-sqlite3`) because the SQLite driver is a native module.
 
-## What it does
+## KYC Review Queue
 
-- **Queue** (`/kyc`): oldest-first table of cases with status / risk / assignment filters, search and paging.
-  Defaults to open (undecided) cases. Shows how long each open case has been waiting, red past 72h.
-- **Case detail** (`/kyc/cases/:id`): name on form vs name on ID side by side, ID document / selfie match /
-  sanctions results, the decision buttons the current user is actually allowed to use, and the case's history
-  from the audit log (including denied attempts).
-- **Audit log** (`/kyc/audit`): every audit row, filterable by actor, action and case ID. Filters are URL
-  params, so filtered views are linkable (e.g. `/kyc/audit?action=denied`). Visible to all roles.
-
-### State machine
+- **Queue** (`/kyc`): oldest-first cases with status / risk / assignment filters, search and paging.
+  Defaults to open (undecided) cases and shows how long each has been waiting (red past 72h).
+- **Case detail** (`/kyc/cases/:id`): name on form vs name on ID side by side, ID document / selfie /
+  sanctions results, the decision buttons the current user may use, and the case's audit history.
+- **Audit log** (`/kyc/audit`): filter by actor, action and case ID (URL params, so views are linkable).
 
 ```
-pending ──claim──▶ in_review ──approve──▶ approved        (terminal)
-   ▲                  │ ├────reject────▶ rejected        (terminal; reason code + note required)
+pending ──claim──▶ in_review ──approve──▶ approved        (final)
+   ▲                  │ ├────reject────▶ rejected        (final; reason code + note required)
    │                  │ └──request_info─▶ info_requested
-   └──customer_replied (simulated admin button) ──────────┘
+   └──customer_replied (simulated button) ────────────────┘
 ```
 
-- Invalid transitions get `409 invalid_transition` and write nothing.
-- Only the person who claimed a case can decide it (`403`, logged as `denied`).
-- High-risk cases can only be claimed/decided by a `senior_reviewer` (`403`, logged as `denied`).
-- Auditors can't change anything (`403`, logged as `denied`).
-- Concurrent claims: a conditional `UPDATE ... WHERE status = 'pending' AND assigned_to IS NULL` inside an
-  `IMMEDIATE` transaction; the loser gets `409 conflict`.
+| | reviewer | senior_reviewer | auditor |
+| --- | --- | --- | --- |
+| View queue, cases, audit log | yes | yes | yes |
+| Claim / decide low & medium risk | yes | yes | no |
+| Claim / decide high risk | no | yes | no |
+
+Only the person who claimed a case can decide it. Concurrent claims: only one wins.
+
+## Refunds
+
+- **Requests** (`/refunds`): oldest-first refund requests with status / amount / requester filters and search.
+  Defaults to open requests (requested or approved). Amounts over the limit are tagged "finance".
+- **Refund detail** (`/refunds/:id`): amount, order, original payment, customer message, the decision
+  buttons the current user may use (or why there are none), and the refund's audit history.
+- **Audit log** (`/refunds/audit`): same shared viewer, showing only refunds rows (plus logins).
+
+```
+requested ──approve──▶ approved ──mark_paid──▶ paid   (final)
+    └────────reject──▶ rejected                        (final; reason code + note required)
+```
+
+| | agent | finance_approver | auditor |
+| --- | --- | --- | --- |
+| View requests and audit log | yes | yes | yes |
+| Approve / reject up to $500.00 | yes | yes | no |
+| Approve / reject over $500.00 | no | yes | no |
+| Mark approved refund as paid | no | yes | no |
+
+Two-person rule: nobody can approve or reject a refund they requested, including finance approvers.
+Refund requests are seeded; there is no "new request" form (see out of scope).
+
+## How rules are enforced (both apps)
+
+Hidden buttons are a convenience only. Every API call re-checks everything on the server:
+
+- No permission (wrong role, high-risk rule, approval limit, two-person rule, not your case, no role in the
+  app): **403, logged as `denied`**.
+- Invalid step (e.g. approving a finished case) or losing a race: **409, nothing logged**.
+- Missing reject reason or note: **400, nothing logged**.
+- No session or forged cookie: **401**.
+
+Each state change and its audit row are written in one database transaction; if the audit write fails, the
+change is rolled back. SQLite triggers block `UPDATE`, `DELETE` and overwriting rows in `audit_log`.
 
 ### API
 
@@ -67,54 +108,56 @@ pending ──claim──▶ in_review ──approve──▶ approved        (t
 | POST | `/api/auth/login` | `{ "userId": "u_alice" }`; dev login only, sets a signed session cookie |
 | POST | `/api/auth/logout` | |
 | GET | `/api/kyc/cases` | `?status=&risk=` |
-| GET | `/api/kyc/cases/:id` | case + its audit history |
+| GET | `/api/kyc/cases/:id` | case, actions you may take, history |
 | POST | `/api/kyc/cases/:id/actions` | `{ "action": "claim" \| "approve" \| "reject" \| "request_info" \| "customer_replied", "reasonCode"?, "note"? }` |
 | GET | `/api/kyc/audit` | `?actor=&case=&action=` |
-
-All routes require a session; the action route is the only way to change state, and it re-checks
-everything server-side regardless of what the UI showed.
+| GET | `/api/refunds` | `?status=` |
+| GET | `/api/refunds/:id` | refund, actions you may take, history |
+| POST | `/api/refunds/:id/actions` | `{ "action": "approve" \| "reject" \| "mark_paid", "reasonCode"?, "note"? }` |
+| GET | `/api/refunds/audit` | `?actor=&case=&action=` |
 
 ## Architecture
 
 ```
-app/                 Next.js routing only: thin files that mount screens and handlers from apps/kyc
-platform/            Reusable, knows nothing about KYC
-  auth/              users table, signed session cookie, dev login screen + handlers, allow/deny helpers
-  audit/             audit_log table + append-only triggers, appendAudit/recordDenied/queryAudit,
+app/                 Next.js routing only: thin files that mount screens and handlers from apps/*
+platform/            Reusable, knows nothing about KYC or refunds
+  auth/              users + user_roles (one role per user per app), signed session cookie,
+                     dev login screen + handlers, requireAppUser / getCurrentAppUser, allow/deny helpers
+  audit/             audit_log (+ append-only triggers, app column), appendAudit/recordDenied/queryAudit,
                      AuditLogTable, AuditLogViewer, AuditTimeline
-  ui/                DataTable (sort/filter/search/paginate), StatusBadge, ConfirmDialog, formatters
-  db/                openDb(): SQLite + Drizzle with WAL, foreign keys, busy timeout
+  ui/                AppShell, DataTable (sort/filter/search/paginate), StatusBadge, ConfirmDialog, formatters
+  db/                openDb(): SQLite + Drizzle (WAL, foreign keys, busy timeout); shared DB path
   http/              HttpError, withErrors, readJson
-apps/kyc/
-  db/                kyc_cases schema, DB wiring, seed
-  domain/            constants, state machine, permission policy, service (the one place state changes)
-  api/               route handlers
-  screens/, components/  pages and KYC-specific UI
-  test/              domain, permission, atomicity, concurrency and API tests
+apps/
+  registry.ts        list of apps shown on the launcher
+  home/              login page and app launcher
+  kyc/               db (schema, seed), domain (state machine, permissions, service), api, screens, components, test
+  refunds/           same layout as kyc
+scripts/seed.ts      resets the DB, seeds users + per-app roles, then each app's data
 ```
 
-`app/` has to sit at the repo root because that's where Next.js looks for routes; it contains no logic.
+What the refunds app reused from `/platform` without changes: dev login and sessions, the allow/deny
+helpers, the audit log (writes, denied logging, viewer, timeline), DataTable, StatusBadge, ConfirmDialog,
+AppShell, DB setup and HTTP error handling. To add a third app:
 
-How a second app (e.g. a feature-flag panel) would reuse `/platform` without editing it:
+1. Create `apps/<name>/` with its own table DDL, domain rules and screens.
+2. Call `requireAppUser(db, req, "<name>")` in API routes and `getCurrentAppUser` in pages.
+3. Wrap each state change in a transaction and call `appendAudit(tx, { app: "<name>", ... })` inside it;
+   call `recordDenied` on refusals. `audit_log.case_id` is a generic subject id.
+4. Add rows to `user_roles` for the new app id and an entry in `apps/registry.ts`.
 
-- Call `openDb(file, [USERS_DDL, AUDIT_DDL, ...its own DDL])` to get the shared `users` and `audit_log` tables.
-- Mount `createLoginHandler(getDb)` / `createLogoutHandler()` and render `<LoginScreen>`.
-- Write its own policy functions returning `allow()` / `deny(reason)`; call `requireUser(db, req)` in routes.
-- Wrap each state change in a transaction and call `appendAudit(tx, ...)` inside it; `recordDenied` on refusals.
-  `audit_log.case_id` is a generic subject id (e.g. a flag key).
-- Use `<DataTable>`, `<StatusBadge>`, `<ConfirmDialog>`, `<AuditLogViewer>`, `<AuditTimeline>` as-is.
-
-Roles are app-defined strings in `users.role`; `/platform` never interprets them.
+All apps share one SQLite file so an app's state change and its audit row can share a transaction.
 
 ## What is mocked
 
-- **Login**: pick a seeded user, no password. The session cookie is HMAC-signed (so it can't be forged by
+- **Login**: pick a seeded user, no password. The session cookie is HMAC-signed (it can't be forged by
   editing the cookie), but identity is whoever you click. Dev login is off when `NODE_ENV=production` unless
   `ENABLE_DEV_LOGIN=true`.
 - **Session secret**: falls back to a hard-coded dev value unless `SESSION_SECRET` is set (required in production).
-- **Check results** (ID document status, selfie match %, sanctions result) are seeded fields, not real integrations.
-- **"Customer replied"** is a button that any reviewer can press to move `info_requested -> pending`.
-- **Data**: 25 fictional cases and 5 fictional users (`@example.com`). No real personal data.
+- **KYC check results** (ID document, selfie match, sanctions) are seeded values, not real integrations.
+- **"Customer replied"** (KYC) is a button that stands in for a real customer response.
+- **"Mark as paid"** (Refunds) records the payout; no money moves.
+- **Data**: fictional people, `@example.com` emails, fake order and card references. No real personal data.
 
 ## Deliberately out of scope
 
@@ -129,23 +172,23 @@ Not built, on purpose:
 - Encryption at rest
 - Data retention policy
 - Accessibility audit
+- Refunds: creating new refund requests in the UI, real payment-provider payouts, multiple currencies
 
 ## Before production use
 
-- **Identity**: replace dev login with SSO/OIDC; map roles from the IdP (groups) instead of a local column;
-  remove or hard-disable the dev login handler; manage `SESSION_SECRET` in a secret store; consider server-side
-  sessions so a user can be revoked before the 8h cookie expires.
+- **Identity**: replace dev login with SSO/OIDC; map per-app roles from IdP groups instead of the local
+  `user_roles` table; remove the dev login handler; keep `SESSION_SECRET` in a secret store; consider
+  server-side sessions so access can be revoked before the 8h cookie expires.
 - **CSRF**: currently relies on `SameSite=Lax` cookies plus the API requiring `Content-Type: application/json`.
   Add explicit CSRF tokens or origin checks.
 - **Database**: SQLite on local disk is single-node. Move to Postgres (or similar) with migrations
   (drizzle-kit) instead of `CREATE TABLE IF NOT EXISTS` at startup. Re-implement the append-only guarantees
-  there (triggers *and* a DB role without UPDATE/DELETE/TRUNCATE/DDL on `audit_log`); triggers alone don't stop
-  someone with write access to the DB file or DDL rights.
+  there (triggers *and* a DB role without UPDATE/DELETE/TRUNCATE/DDL on `audit_log`).
 - **Audit integrity**: consider hash-chaining rows or shipping them to write-once storage so tampering by a
   DB admin is detectable. Decide what goes in `metadata` (it currently copies reviewer notes).
-- **Policy review**: compliance should sign off on the rules encoded in `apps/kyc/domain/permissions.ts`
-  (e.g. should a reviewer be able to *claim* a high-risk case? currently no; four-eyes on rejections? currently no).
-- **Real integrations** for ID verification, selfie match and sanctions screening; a real customer-reply flow.
-- **Operations**: logging/monitoring, backups, rate limiting, error reporting, load testing the queue
-  (DataTable filters client-side, fine for hundreds of rows, not for tens of thousands).
+- **Policy review**: compliance/finance should sign off on the rules in `apps/kyc/domain/permissions.ts` and
+  `apps/refunds/domain/permissions.ts` (e.g. the $500 limit, whether the approver may also mark as paid).
+- **Real integrations**: ID verification, selfie match, sanctions screening, payment provider refunds.
+- **Operations**: logging/monitoring, backups, rate limiting, error reporting, load testing
+  (DataTable filters client-side: fine for hundreds of rows, not tens of thousands).
 - Plus everything in the out-of-scope list above.
