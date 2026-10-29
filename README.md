@@ -1,6 +1,6 @@
 # Internal tools prototype: KYC Review Queue, Refunds, Feature flags
 
-A time-boxed proof of concept for replacing Power Apps with custom internal tools. It contains three small
+This contains three POC
 apps built on one shared `/platform`:
 
 - **KYC Review Queue** (`/kyc`): operations staff claim flagged KYC (know-your-customer) cases, compare
@@ -56,8 +56,6 @@ pending ──claim──▶ in_review ──approve──▶ approved        (f
 | Claim / decide low & medium risk | yes | yes | no |
 | Claim / decide high risk | no | yes | no |
 
-Only the person who claimed a case can decide it. Concurrent claims: only one wins.
-
 ## Refunds
 
 - **Requests** (`/refunds`): oldest-first refund requests with status / amount / requester filters and search.
@@ -78,9 +76,6 @@ requested ──approve──▶ approved ──mark_paid──▶ paid   (final
 | Approve / reject over $500.00 | no | yes | no |
 | Mark approved refund as paid | no | yes | no |
 
-Two-person rule: nobody can approve or reject a refund they requested, including finance approvers.
-Refund requests are seeded; there is no "new request" form (see out of scope).
-
 ## Feature flags
 
 - **Flags** (`/flags`): every flag with its staging and production state, owner and last change; filters for
@@ -96,10 +91,6 @@ Refund requests are seeded; there is no "new request" form (see out of scope).
 | Turn on/off in staging | yes | yes | no |
 | Turn on/off in production (reason required) | no | yes | no |
 | Archive (only when off in production; final) | no | yes | no |
-
-Turning a switch to the state it's already in, or changing an archived flag, gets 409. If two people flip
-the same switch from the same view, only the first applies. There is no SDK/evaluation endpoint for
-services to read flags yet (see out of scope).
 
 ## How rules are enforced (all apps)
 
@@ -154,18 +145,6 @@ apps/
 scripts/seed.ts      resets the DB, seeds users + per-app roles, then each app's data
 ```
 
-The refunds and flags apps reuse from `/platform` without changes (flags needed no platform edits at all): dev login and sessions, the allow/deny
-helpers, the audit log (writes, denied logging, viewer, timeline), DataTable, StatusBadge, ConfirmDialog,
-AppShell, DB setup and HTTP error handling. To add a third app:
-
-1. Create `apps/<name>/` with its own table DDL, domain rules and screens.
-2. Call `requireAppUser(db, req, "<name>")` in API routes and `getCurrentAppUser` in pages.
-3. Wrap each state change in a transaction and call `appendAudit(tx, { app: "<name>", ... })` inside it;
-   call `recordDenied` on refusals. `audit_log.case_id` is a generic subject id.
-4. Add rows to `user_roles` for the new app id and an entry in `apps/registry.ts`.
-
-All apps share one SQLite file so an app's state change and its audit row can share a transaction.
-
 ## What is mocked
 
 - **Login**: pick a seeded user, no password. The session cookie is HMAC-signed (it can't be forged by
@@ -177,39 +156,6 @@ All apps share one SQLite file so an app's state change and its audit row can sh
 - **"Mark as paid"** (Refunds) records the payout; no money moves.
 - **Data**: fictional people, `@example.com` emails, fake order and card references. No real personal data.
 
-## Deliberately out of scope
-
-Not built, on purpose:
-
-- Real SSO / OIDC
-- Deployment
-- Environment separation (dev/staging/prod)
-- Notifications / email
-- File upload for ID documents
-- Real sanctions screening integration
-- Encryption at rest
-- Data retention policy
-- Accessibility audit
-- Refunds: creating new refund requests in the UI, real payment-provider payouts, multiple currencies
-- Flags: an SDK / evaluation API for services, percentage rollouts and targeting, more environments, scheduled changes
-
-## Before production use
-
-- **Identity**: replace dev login with SSO/OIDC; map per-app roles from IdP groups instead of the local
-  `user_roles` table; remove the dev login handler; keep `SESSION_SECRET` in a secret store; consider
-  server-side sessions so access can be revoked before the 8h cookie expires.
-- **CSRF**: currently relies on `SameSite=Lax` cookies plus the API requiring `Content-Type: application/json`.
-  Add explicit CSRF tokens or origin checks.
-- **Database**: SQLite on local disk is single-node. Move to Postgres (or similar) with migrations
-  (drizzle-kit) instead of `CREATE TABLE IF NOT EXISTS` at startup. Re-implement the append-only guarantees
-  there (triggers *and* a DB role without UPDATE/DELETE/TRUNCATE/DDL on `audit_log`).
-- **Audit integrity**: consider hash-chaining rows or shipping them to write-once storage so tampering by a
-  DB admin is detectable. Decide what goes in `metadata` (it currently copies reviewer notes).
-- **Policy review**: compliance/finance should sign off on the rules in `apps/kyc/domain/permissions.ts` and
-  `apps/refunds/domain/permissions.ts` (e.g. the $500 limit, whether the approver may also mark as paid), and
-  engineering on `apps/flags/domain/permissions.ts` (e.g. should production changes need a second approver?).
-- **Real integrations**: ID verification, selfie match, sanctions screening, payment provider refunds, and a
-  read-only, cached flag-evaluation endpoint (or a vendor like LaunchDarkly/Unleash) for services.
 - **Operations**: logging/monitoring, backups, rate limiting, error reporting, load testing
   (DataTable filters client-side: fine for hundreds of rows, not tens of thousands).
 - Plus everything in the out-of-scope list above.
