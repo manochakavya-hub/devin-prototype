@@ -5,8 +5,7 @@ apps built on one shared `/platform`:
 
 - **KYC Review Queue** (`/kyc`): operations staff claim flagged KYC (know-your-customer) cases, compare
   the applicant's form with their ID and check results, then approve, reject or request more information.
-- **Refunds** (`/refunds`): agents and finance approve or reject customer refund requests, with an approval
-  limit and a two-person rule; finance marks approved refunds as paid.
+- **Refunds** (`/refunds`): agents and finance approve or reject customer refund requests; finance marks approved refunds as paid.
 - **Feature flags** (`/flags`): engineers create flags and switch them on/off in staging; release managers
   also control production (with a required reason) and archive flags.
 
@@ -96,7 +95,7 @@ requested ──approve──▶ approved ──mark_paid──▶ paid   (final
 
 Hidden buttons are a convenience only. Every API call re-checks everything on the server:
 
-- No permission (wrong role, high-risk rule, approval limit, two-person rule, not your case, no role in the
+- No permission (wrong role, high-risk rule, approval limit, not your case, no role in the
   app): **403, logged as `denied`**.
 - Invalid step (e.g. approving a finished case) or losing a race: **409, nothing logged**.
 - Missing reject reason or note: **400, nothing logged**.
